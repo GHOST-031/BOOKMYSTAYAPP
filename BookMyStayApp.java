@@ -1,7 +1,9 @@
 import java.util.ArrayDeque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 
 /**
  * Application entry point for the Book My Stay Hotel Booking Management System.
@@ -10,7 +12,7 @@ import java.util.Queue;
  * to keep the execution boundary clear and centralized.
  *
  * @author GHOST-031
- * @version 5.1
+ * @version 6.1
  */
 public class BookMyStayApp {
 
@@ -178,25 +180,111 @@ public class BookMyStayApp {
         public int getPendingRequestCount() {
             return pendingRequests.size();
         }
+
+        public Reservation dequeueNextRequest() {
+            return pendingRequests.poll();
+        }
+
+        public boolean hasPendingRequests() {
+            return !pendingRequests.isEmpty();
+        }
+    }
+
+    /**
+     * Booking service confirms reservations and allocates unique rooms safely.
+     */
+    private static class BookingService {
+        private final RoomInventory roomInventory;
+        private final Set<String> allocatedRoomIds;
+        private final HashMap<String, Set<String>> allocatedRoomsByType;
+        private int roomSequence;
+
+        private BookingService(RoomInventory roomInventory) {
+            this.roomInventory = roomInventory;
+            this.allocatedRoomIds = new HashSet<String>();
+            this.allocatedRoomsByType = new HashMap<String, Set<String>>();
+            this.roomSequence = 100;
+        }
+
+        public void processQueuedRequests(BookingRequestQueue bookingRequestQueue) {
+            while (bookingRequestQueue.hasPendingRequests()) {
+                Reservation reservation = bookingRequestQueue.dequeueNextRequest();
+                if (reservation == null) {
+                    continue;
+                }
+
+                String roomType = reservation.getRequestedRoomType();
+                int availableCount = roomInventory.getAvailability(roomType);
+                if (availableCount <= 0) {
+                    System.out.println("Reservation " + reservation.getRequestId()
+                        + " could not be confirmed: no availability for " + roomType + ".");
+                    continue;
+                }
+
+                String allocatedRoomId = generateUniqueRoomId(roomType);
+
+                // Allocation registration and inventory update are performed together.
+                allocatedRoomIds.add(allocatedRoomId);
+                Set<String> roomTypeAllocations = allocatedRoomsByType.get(roomType);
+                if (roomTypeAllocations == null) {
+                    roomTypeAllocations = new HashSet<String>();
+                    allocatedRoomsByType.put(roomType, roomTypeAllocations);
+                }
+                roomTypeAllocations.add(allocatedRoomId);
+                roomInventory.updateAvailability(roomType, availableCount - 1);
+
+                System.out.println("Reservation " + reservation.getRequestId()
+                    + " confirmed for " + reservation.getGuestName()
+                    + ". Allocated Room ID: " + allocatedRoomId);
+            }
+        }
+
+        public Map<String, Set<String>> getAllocatedRoomsByTypeSnapshot() {
+            HashMap<String, Set<String>> snapshot = new HashMap<String, Set<String>>();
+            for (Map.Entry<String, Set<String>> entry : allocatedRoomsByType.entrySet()) {
+                snapshot.put(entry.getKey(), new HashSet<String>(entry.getValue()));
+            }
+            return snapshot;
+        }
+
+        public int getTotalAllocatedRoomCount() {
+            return allocatedRoomIds.size();
+        }
+
+        private String generateUniqueRoomId(String roomType) {
+            String prefix = roomType.replace(" ", "").toUpperCase();
+            String roomId = prefix + "-" + roomSequence;
+
+            while (allocatedRoomIds.contains(roomId)) {
+                roomSequence++;
+                roomId = prefix + "-" + roomSequence;
+            }
+
+            roomSequence++;
+            return roomId;
+        }
     }
 
     /**
      * Starts the application and routes execution to a selected use case.
      *
-          * @param args command-line arguments (optional: pass UC number like "5")
+          * @param args command-line arguments (optional: pass UC number like "6")
      */
     public static void main(String[] args) {
-              int useCase = 5;
+              int useCase = 6;
 
         if (args.length > 0) {
             try {
                 useCase = Integer.parseInt(args[0]);
             } catch (NumberFormatException ex) {
-                System.out.println("Invalid use case argument. Running UC05 by default.");
+                System.out.println("Invalid use case argument. Running UC06 by default.");
             }
         }
 
         switch (useCase) {
+            case 6:
+                runUseCase6();
+                break;
             case 5:
                 runUseCase5();
                 break;
@@ -216,6 +304,36 @@ public class BookMyStayApp {
                 System.out.println("Use case not implemented yet in this class: UC" + useCase);
                 break;
         }
+    }
+
+    /**
+     * Use Case 6: Reservation Confirmation and Room Allocation.
+     */
+    private static void runUseCase6() {
+        RoomInventory roomInventory = new RoomInventory();
+        BookingRequestQueue bookingRequestQueue = new BookingRequestQueue();
+
+        bookingRequestQueue.submitRequest(new Reservation("REQ-2001", "Aarav", "Double Room", 2));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-2002", "Diya", "Single Room", 1));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-2003", "Kabir", "Suite Room", 3));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-2004", "Meera", "Suite Room", 2));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-2005", "Ishaan", "Suite Room", 1));
+
+        BookingService bookingService = new BookingService(roomInventory);
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 6.1");
+        System.out.println("Use Case: UC06 - Reservation Confirmation and Room Allocation");
+        System.out.println();
+        System.out.println("Processing queued requests in FIFO order:");
+
+        bookingService.processQueuedRequests(bookingRequestQueue);
+
+        System.out.println();
+        System.out.println("Allocated Room IDs By Type: " + bookingService.getAllocatedRoomsByTypeSnapshot());
+        System.out.println("Total unique allocated room IDs: " + bookingService.getTotalAllocatedRoomCount());
+        System.out.println("Inventory after allocation: " + roomInventory.getInventorySnapshot());
     }
 
     /**
