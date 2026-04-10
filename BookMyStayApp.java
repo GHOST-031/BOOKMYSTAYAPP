@@ -7,7 +7,7 @@
  * @author GHOST-031
  * @version UC01
  */
-public class HotelBookingApp {
+public class BookMyStayApp {
 
     /**
      * Starts the application and routes execution to a selected use case.
