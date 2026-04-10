@@ -1,6 +1,8 @@
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
@@ -12,7 +14,7 @@ import java.util.Set;
  * to keep the execution boundary clear and centralized.
  *
  * @author GHOST-031
- * @version 6.1
+ * @version 7.1
  */
 public class BookMyStayApp {
 
@@ -266,22 +268,98 @@ public class BookMyStayApp {
     }
 
     /**
+     * Optional service that can be attached to a reservation.
+     */
+    private static class AddOnService {
+        private final String serviceName;
+        private final double serviceCost;
+
+        private AddOnService(String serviceName, double serviceCost) {
+            this.serviceName = serviceName;
+            this.serviceCost = serviceCost;
+        }
+
+        public String getServiceName() {
+            return serviceName;
+        }
+
+        public double getServiceCost() {
+            return serviceCost;
+        }
+    }
+
+    /**
+     * Manages reservation-to-add-on mappings independent of core allocation.
+     */
+    private static class AddOnServiceManager {
+        private final HashMap<String, List<AddOnService>> servicesByReservationId;
+
+        private AddOnServiceManager() {
+            servicesByReservationId = new HashMap<String, List<AddOnService>>();
+        }
+
+        public void addServiceToReservation(String reservationId, AddOnService addOnService) {
+            if (reservationId == null || reservationId.isEmpty() || addOnService == null) {
+                return;
+            }
+
+            List<AddOnService> selectedServices = servicesByReservationId.get(reservationId);
+            if (selectedServices == null) {
+                selectedServices = new ArrayList<AddOnService>();
+                servicesByReservationId.put(reservationId, selectedServices);
+            }
+
+            selectedServices.add(addOnService);
+        }
+
+        public List<AddOnService> getServicesForReservation(String reservationId) {
+            List<AddOnService> selectedServices = servicesByReservationId.get(reservationId);
+            if (selectedServices == null) {
+                return new ArrayList<AddOnService>();
+            }
+            return new ArrayList<AddOnService>(selectedServices);
+        }
+
+        public double calculateTotalAddOnCost(String reservationId) {
+            List<AddOnService> selectedServices = getServicesForReservation(reservationId);
+            double totalCost = 0.0;
+
+            for (int index = 0; index < selectedServices.size(); index++) {
+                totalCost += selectedServices.get(index).getServiceCost();
+            }
+
+            return totalCost;
+        }
+
+        public Map<String, List<AddOnService>> getReservationServiceSnapshot() {
+            HashMap<String, List<AddOnService>> snapshot = new HashMap<String, List<AddOnService>>();
+            for (Map.Entry<String, List<AddOnService>> entry : servicesByReservationId.entrySet()) {
+                snapshot.put(entry.getKey(), new ArrayList<AddOnService>(entry.getValue()));
+            }
+            return snapshot;
+        }
+    }
+
+    /**
      * Starts the application and routes execution to a selected use case.
      *
-          * @param args command-line arguments (optional: pass UC number like "6")
+          * @param args command-line arguments (optional: pass UC number like "7")
      */
     public static void main(String[] args) {
-              int useCase = 6;
+              int useCase = 7;
 
         if (args.length > 0) {
             try {
                 useCase = Integer.parseInt(args[0]);
             } catch (NumberFormatException ex) {
-                System.out.println("Invalid use case argument. Running UC06 by default.");
+                System.out.println("Invalid use case argument. Running UC07 by default.");
             }
         }
 
         switch (useCase) {
+            case 7:
+                runUseCase7();
+                break;
             case 6:
                 runUseCase6();
                 break;
@@ -304,6 +382,39 @@ public class BookMyStayApp {
                 System.out.println("Use case not implemented yet in this class: UC" + useCase);
                 break;
         }
+    }
+
+    /**
+     * Use Case 7: Add-On Service Selection.
+     */
+    private static void runUseCase7() {
+        String reservationId = "RES-7001";
+        AddOnServiceManager addOnServiceManager = new AddOnServiceManager();
+
+        addOnServiceManager.addServiceToReservation(reservationId, new AddOnService("Airport Pickup", 1200.0));
+        addOnServiceManager.addServiceToReservation(reservationId, new AddOnService("Breakfast", 800.0));
+        addOnServiceManager.addServiceToReservation(reservationId, new AddOnService("Spa Access", 1500.0));
+
+        List<AddOnService> selectedServices = addOnServiceManager.getServicesForReservation(reservationId);
+        double totalAddOnCost = addOnServiceManager.calculateTotalAddOnCost(reservationId);
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 7.1");
+        System.out.println("Use Case: UC07 - Add-On Service Selection");
+        System.out.println();
+        System.out.println("Reservation ID: " + reservationId);
+        System.out.println("Selected Add-On Services:");
+
+        for (int index = 0; index < selectedServices.size(); index++) {
+            AddOnService addOnService = selectedServices.get(index);
+            System.out.println("- " + addOnService.getServiceName() + " | Cost: INR " + addOnService.getServiceCost());
+        }
+
+        System.out.println();
+        System.out.println("Total Additional Cost: INR " + totalAddOnCost);
+        System.out.println("Service Mapping Snapshot: " + addOnServiceManager.getReservationServiceSnapshot().keySet());
+        System.out.println("Core booking allocation and inventory states remain unchanged.");
     }
 
     /**
