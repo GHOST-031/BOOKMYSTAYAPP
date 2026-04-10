@@ -1,5 +1,12 @@
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -14,7 +21,7 @@ import java.util.Set;
  * to keep the execution boundary clear and centralized.
  *
  * @author GHOST-031
- * @version 11.1
+ * @version 12.1
  */
 public class BookMyStayApp {
 
@@ -97,6 +104,13 @@ public class BookMyStayApp {
 
         public Map<String, Integer> getInventorySnapshot() {
             return new HashMap<String, Integer>(availability);
+        }
+
+        public void restoreFromSnapshot(Map<String, Integer> snapshot) {
+            availability.clear();
+            if (snapshot != null) {
+                availability.putAll(snapshot);
+            }
         }
     }
 
@@ -359,6 +373,22 @@ public class BookMyStayApp {
         public List<Reservation> getConfirmedReservationsSnapshot() {
             return new ArrayList<Reservation>(confirmedReservations);
         }
+
+        public void restoreFromRecords(List<ReservationRecord> records) {
+            confirmedReservations.clear();
+            if (records == null) {
+                return;
+            }
+
+            for (int index = 0; index < records.size(); index++) {
+                ReservationRecord record = records.get(index);
+                confirmedReservations.add(new Reservation(
+                    record.getRequestId(),
+                    record.getGuestName(),
+                    record.getRequestedRoomType(),
+                    record.getNights()));
+            }
+        }
     }
 
     /**
@@ -378,6 +408,127 @@ public class BookMyStayApp {
             System.out.println("Booking Summary Report:");
             System.out.println("Total confirmed reservations: " + history.size());
             System.out.println("Confirmed reservations by room type: " + countByRoomType);
+        }
+    }
+
+    /**
+     * Serializable booking record used for persistence snapshots.
+     */
+    private static class ReservationRecord implements Serializable {
+        private static final long serialVersionUID = 1L;
+
+        private final String requestId;
+        private final String guestName;
+        private final String requestedRoomType;
+        private final int nights;
+
+        private ReservationRecord(String requestId, String guestName, String requestedRoomType, int nights) {
+            this.requestId = requestId;
+            this.guestName = guestName;
+            this.requestedRoomType = requestedRoomType;
+            this.nights = nights;
+        }
+
+        public String getRequestId() {
+            return requestId;
+        }
+
+        public String getGuestName() {
+            return guestName;
+        }
+
+        public String getRequestedRoomType() {
+            return requestedRoomType;
+        }
+
+        public int getNights() {
+            return nights;
+        }
+    }
+
+    /**
+     * Serializable snapshot representing durable application state.
+     */
+    private static class PersistedState implements Serializable {
+        private static final long serialVersionUID = 1L;
+
+        private final HashMap<String, Integer> inventorySnapshot;
+        private final ArrayList<ReservationRecord> bookingHistoryRecords;
+
+        private PersistedState(Map<String, Integer> inventorySnapshot, List<ReservationRecord> bookingHistoryRecords) {
+            this.inventorySnapshot = new HashMap<String, Integer>(inventorySnapshot);
+            this.bookingHistoryRecords = new ArrayList<ReservationRecord>(bookingHistoryRecords);
+        }
+
+        public Map<String, Integer> getInventorySnapshot() {
+            return new HashMap<String, Integer>(inventorySnapshot);
+        }
+
+        public List<ReservationRecord> getBookingHistoryRecords() {
+            return new ArrayList<ReservationRecord>(bookingHistoryRecords);
+        }
+    }
+
+    /**
+     * Handles durable save and restore of core system state.
+     */
+    private static class PersistenceService {
+        private final String filePath;
+
+        private PersistenceService(String filePath) {
+            this.filePath = filePath;
+        }
+
+        public void saveState(RoomInventory roomInventory, BookingHistory bookingHistory) {
+            List<Reservation> history = bookingHistory.getConfirmedReservationsSnapshot();
+            ArrayList<ReservationRecord> records = new ArrayList<ReservationRecord>();
+
+            for (int index = 0; index < history.size(); index++) {
+                Reservation reservation = history.get(index);
+                records.add(new ReservationRecord(
+                    reservation.getRequestId(),
+                    reservation.getGuestName(),
+                    reservation.getRequestedRoomType(),
+                    reservation.getNights()));
+            }
+
+            PersistedState state = new PersistedState(roomInventory.getInventorySnapshot(), records);
+
+            try {
+                ObjectOutputStream output = new ObjectOutputStream(new FileOutputStream(filePath));
+                output.writeObject(state);
+                output.close();
+                System.out.println("State persisted to file: " + filePath);
+            } catch (IOException ex) {
+                System.out.println("Failed to persist state: " + ex.getMessage());
+            }
+        }
+
+        public PersistedState loadState(Map<String, Integer> fallbackInventorySnapshot) {
+            File file = new File(filePath);
+            if (!file.exists()) {
+                System.out.println("Persistence file not found. Bootstrapping safe default state.");
+                return new PersistedState(fallbackInventorySnapshot, new ArrayList<ReservationRecord>());
+            }
+
+            try {
+                ObjectInputStream input = new ObjectInputStream(new FileInputStream(filePath));
+                Object stateObject = input.readObject();
+                input.close();
+
+                if (stateObject instanceof PersistedState) {
+                    System.out.println("State recovered from file: " + filePath);
+                    return (PersistedState) stateObject;
+                }
+
+                System.out.println("Persistence file format is invalid. Using safe default state.");
+            } catch (IOException ex) {
+                System.out.println("Failed to read persisted state. Using safe default state. Reason: " + ex.getMessage());
+            } catch (ClassNotFoundException ex) {
+                System.out.println("Persisted class metadata mismatch. Using safe default state. Reason: " + ex.getMessage());
+            }
+
+            return new PersistedState(fallbackInventorySnapshot, new ArrayList<ReservationRecord>());
         }
     }
 
@@ -536,20 +687,23 @@ public class BookMyStayApp {
     /**
      * Starts the application and routes execution to a selected use case.
      *
-          * @param args command-line arguments (optional: pass UC number like "11")
+          * @param args command-line arguments (optional: pass UC number like "12")
      */
     public static void main(String[] args) {
-              int useCase = 11;
+              int useCase = 12;
 
         if (args.length > 0) {
             try {
                 useCase = Integer.parseInt(args[0]);
             } catch (NumberFormatException ex) {
-                System.out.println("Invalid use case argument. Running UC11 by default.");
+                System.out.println("Invalid use case argument. Running UC12 by default.");
             }
         }
 
         switch (useCase) {
+            case 12:
+                runUseCase12();
+                break;
             case 11:
                 runUseCase11();
                 break;
@@ -584,6 +738,59 @@ public class BookMyStayApp {
                 System.out.println("Use case not implemented yet in this class: UC" + useCase);
                 break;
         }
+    }
+
+    /**
+     * Use Case 12: Data Persistence and System Recovery.
+     */
+    private static void runUseCase12() {
+        String persistenceFilePath = "bookmystay_state.ser";
+        PersistenceService persistenceService = new PersistenceService(persistenceFilePath);
+
+        RoomInventory inventoryBeforeShutdown = new RoomInventory();
+        BookingHistory historyBeforeShutdown = new BookingHistory();
+
+        historyBeforeShutdown.addConfirmedReservation(new Reservation("RES-12001", "Aarav", "Double Room", 2));
+        historyBeforeShutdown.addConfirmedReservation(new Reservation("RES-12002", "Diya", "Suite Room", 1));
+        historyBeforeShutdown.addConfirmedReservation(new Reservation("RES-12003", "Kabir", "Single Room", 3));
+
+        inventoryBeforeShutdown.updateAvailability("Double Room", 4);
+        inventoryBeforeShutdown.updateAvailability("Suite Room", 1);
+        inventoryBeforeShutdown.updateAvailability("Single Room", 7);
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 12.1");
+        System.out.println("Use Case: UC12 - Data Persistence and System Recovery");
+        System.out.println();
+        System.out.println("Preparing for shutdown. Persisting current state...");
+
+        persistenceService.saveState(inventoryBeforeShutdown, historyBeforeShutdown);
+
+        System.out.println();
+        System.out.println("Simulating system restart...");
+
+        RoomInventory recoveredInventory = new RoomInventory();
+        BookingHistory recoveredHistory = new BookingHistory();
+
+        PersistedState restoredState = persistenceService.loadState(recoveredInventory.getInventorySnapshot());
+        recoveredInventory.restoreFromSnapshot(restoredState.getInventorySnapshot());
+        recoveredHistory.restoreFromRecords(restoredState.getBookingHistoryRecords());
+
+        System.out.println("Recovery complete. Restored inventory snapshot: " + recoveredInventory.getInventorySnapshot());
+        System.out.println("Recovered booking history records:");
+
+        List<Reservation> recoveredReservations = recoveredHistory.getConfirmedReservationsSnapshot();
+        for (int index = 0; index < recoveredReservations.size(); index++) {
+            Reservation reservation = recoveredReservations.get(index);
+            System.out.println(reservation.getRequestId()
+                + " | Guest: " + reservation.getGuestName()
+                + " | Room: " + reservation.getRequestedRoomType()
+                + " | Nights: " + reservation.getNights());
+        }
+
+        System.out.println();
+        System.out.println("System resumed safely with recovered state.");
     }
 
     /**
