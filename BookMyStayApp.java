@@ -14,7 +14,7 @@ import java.util.Set;
  * to keep the execution boundary clear and centralized.
  *
  * @author GHOST-031
- * @version 9.1
+ * @version 11.1
  */
 public class BookMyStayApp {
 
@@ -454,22 +454,105 @@ public class BookMyStayApp {
     }
 
     /**
+     * Thread-safe queue for concurrent booking request intake.
+     */
+    private static class SharedBookingQueue {
+        private final Queue<Reservation> sharedRequests;
+
+        private SharedBookingQueue() {
+            sharedRequests = new ArrayDeque<Reservation>();
+        }
+
+        public synchronized void submit(Reservation reservation) {
+            if (reservation != null) {
+                sharedRequests.offer(reservation);
+            }
+        }
+
+        public synchronized Reservation dequeue() {
+            return sharedRequests.poll();
+        }
+
+        public synchronized int size() {
+            return sharedRequests.size();
+        }
+    }
+
+    /**
+     * Synchronized processor that protects inventory and allocation state.
+     */
+    private static class ConcurrentBookingProcessor {
+        private final RoomInventory roomInventory;
+        private final Set<String> allocatedRoomIds;
+        private final HashMap<String, String> reservationToRoomId;
+        private int roomSequence;
+
+        private ConcurrentBookingProcessor(RoomInventory roomInventory) {
+            this.roomInventory = roomInventory;
+            this.allocatedRoomIds = new HashSet<String>();
+            this.reservationToRoomId = new HashMap<String, String>();
+            this.roomSequence = 500;
+        }
+
+        public synchronized boolean allocateSafely(Reservation reservation) {
+            if (reservation == null) {
+                return false;
+            }
+
+            int availableCount = roomInventory.getAvailability(reservation.getRequestedRoomType());
+            if (availableCount <= 0) {
+                return false;
+            }
+
+            String roomId = nextUniqueRoomId(reservation.getRequestedRoomType());
+            allocatedRoomIds.add(roomId);
+            reservationToRoomId.put(reservation.getRequestId(), roomId);
+            roomInventory.updateAvailability(reservation.getRequestedRoomType(), availableCount - 1);
+            return true;
+        }
+
+        public synchronized Map<String, String> getReservationAllocationSnapshot() {
+            return new HashMap<String, String>(reservationToRoomId);
+        }
+
+        public synchronized int getAllocatedRoomCount() {
+            return allocatedRoomIds.size();
+        }
+
+        private String nextUniqueRoomId(String roomType) {
+            String prefix = roomType.replace(" ", "").toUpperCase();
+            String roomId = prefix + "-" + roomSequence;
+
+            while (allocatedRoomIds.contains(roomId)) {
+                roomSequence++;
+                roomId = prefix + "-" + roomSequence;
+            }
+
+            roomSequence++;
+            return roomId;
+        }
+    }
+
+    /**
      * Starts the application and routes execution to a selected use case.
      *
-          * @param args command-line arguments (optional: pass UC number like "9")
+          * @param args command-line arguments (optional: pass UC number like "11")
      */
     public static void main(String[] args) {
-              int useCase = 9;
+              int useCase = 11;
 
         if (args.length > 0) {
             try {
                 useCase = Integer.parseInt(args[0]);
             } catch (NumberFormatException ex) {
-                System.out.println("Invalid use case argument. Running UC09 by default.");
+                System.out.println("Invalid use case argument. Running UC11 by default.");
             }
         }
 
         switch (useCase) {
+            case 11:
+                runUseCase11();
+                break;
             case 9:
                 runUseCase9();
                 break;
@@ -501,6 +584,91 @@ public class BookMyStayApp {
                 System.out.println("Use case not implemented yet in this class: UC" + useCase);
                 break;
         }
+    }
+
+    /**
+     * Use Case 11: Concurrent Booking Simulation (Thread Safety).
+     */
+    private static void runUseCase11() {
+        final RoomInventory roomInventory = new RoomInventory();
+        final SharedBookingQueue sharedBookingQueue = new SharedBookingQueue();
+        final ConcurrentBookingProcessor concurrentProcessor = new ConcurrentBookingProcessor(roomInventory);
+
+        Thread guestOne = new Thread(new Runnable() {
+            public void run() {
+                sharedBookingQueue.submit(new Reservation("REQ-C001", "Aarav", "Double Room", 2));
+                sharedBookingQueue.submit(new Reservation("REQ-C002", "Diya", "Suite Room", 1));
+            }
+        }, "Guest-Producer-1");
+
+        Thread guestTwo = new Thread(new Runnable() {
+            public void run() {
+                sharedBookingQueue.submit(new Reservation("REQ-C003", "Kabir", "Suite Room", 2));
+                sharedBookingQueue.submit(new Reservation("REQ-C004", "Meera", "Suite Room", 1));
+            }
+        }, "Guest-Producer-2");
+
+        guestOne.start();
+        guestTwo.start();
+
+        try {
+            guestOne.join();
+            guestTwo.join();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            System.out.println("Request intake interrupted: " + ex.getMessage());
+        }
+
+        Runnable workerTask = new Runnable() {
+            public void run() {
+                while (true) {
+                    Reservation request = sharedBookingQueue.dequeue();
+                    if (request == null) {
+                        return;
+                    }
+
+                    boolean allocated = concurrentProcessor.allocateSafely(request);
+                    if (allocated) {
+                        System.out.println(Thread.currentThread().getName() + " allocated request "
+                            + request.getRequestId() + " for " + request.getGuestName() + ".");
+                    } else {
+                        System.out.println(Thread.currentThread().getName() + " could not allocate request "
+                            + request.getRequestId() + " (no availability).");
+                    }
+                }
+            }
+        };
+
+        Thread workerOne = new Thread(workerTask, "Allocator-1");
+        Thread workerTwo = new Thread(workerTask, "Allocator-2");
+        Thread workerThree = new Thread(workerTask, "Allocator-3");
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 11.1");
+        System.out.println("Use Case: UC11 - Concurrent Booking Simulation (Thread Safety)");
+        System.out.println();
+        System.out.println("Queued requests before processing: " + sharedBookingQueue.size());
+        System.out.println("Starting concurrent allocation threads...");
+
+        workerOne.start();
+        workerTwo.start();
+        workerThree.start();
+
+        try {
+            workerOne.join();
+            workerTwo.join();
+            workerThree.join();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            System.out.println("Worker processing interrupted: " + ex.getMessage());
+        }
+
+        System.out.println();
+        System.out.println("All concurrent workers completed.");
+        System.out.println("Final reservation-to-room allocation: " + concurrentProcessor.getReservationAllocationSnapshot());
+        System.out.println("Total unique rooms allocated: " + concurrentProcessor.getAllocatedRoomCount());
+        System.out.println("Final inventory snapshot: " + roomInventory.getInventorySnapshot());
     }
 
     /**
