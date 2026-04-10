@@ -14,7 +14,7 @@ import java.util.Set;
  * to keep the execution boundary clear and centralized.
  *
  * @author GHOST-031
- * @version 7.1
+ * @version 8.1
  */
 public class BookMyStayApp {
 
@@ -341,22 +341,66 @@ public class BookMyStayApp {
     }
 
     /**
+     * Stores confirmed bookings in confirmation order for audit and review.
+     */
+    private static class BookingHistory {
+        private final List<Reservation> confirmedReservations;
+
+        private BookingHistory() {
+            confirmedReservations = new ArrayList<Reservation>();
+        }
+
+        public void addConfirmedReservation(Reservation reservation) {
+            if (reservation != null) {
+                confirmedReservations.add(reservation);
+            }
+        }
+
+        public List<Reservation> getConfirmedReservationsSnapshot() {
+            return new ArrayList<Reservation>(confirmedReservations);
+        }
+    }
+
+    /**
+     * Generates read-only operational reports from booking history.
+     */
+    private static class BookingReportService {
+        public void printSummaryReport(BookingHistory bookingHistory) {
+            List<Reservation> history = bookingHistory.getConfirmedReservationsSnapshot();
+            HashMap<String, Integer> countByRoomType = new HashMap<String, Integer>();
+
+            for (int index = 0; index < history.size(); index++) {
+                Reservation reservation = history.get(index);
+                Integer count = countByRoomType.get(reservation.getRequestedRoomType());
+                countByRoomType.put(reservation.getRequestedRoomType(), count == null ? 1 : count + 1);
+            }
+
+            System.out.println("Booking Summary Report:");
+            System.out.println("Total confirmed reservations: " + history.size());
+            System.out.println("Confirmed reservations by room type: " + countByRoomType);
+        }
+    }
+
+    /**
      * Starts the application and routes execution to a selected use case.
      *
-          * @param args command-line arguments (optional: pass UC number like "7")
+          * @param args command-line arguments (optional: pass UC number like "8")
      */
     public static void main(String[] args) {
-              int useCase = 7;
+              int useCase = 8;
 
         if (args.length > 0) {
             try {
                 useCase = Integer.parseInt(args[0]);
             } catch (NumberFormatException ex) {
-                System.out.println("Invalid use case argument. Running UC07 by default.");
+                System.out.println("Invalid use case argument. Running UC08 by default.");
             }
         }
 
         switch (useCase) {
+            case 8:
+                runUseCase8();
+                break;
             case 7:
                 runUseCase7();
                 break;
@@ -382,6 +426,39 @@ public class BookMyStayApp {
                 System.out.println("Use case not implemented yet in this class: UC" + useCase);
                 break;
         }
+    }
+
+    /**
+     * Use Case 8: Booking History and Reporting.
+     */
+    private static void runUseCase8() {
+        BookingHistory bookingHistory = new BookingHistory();
+        BookingReportService bookingReportService = new BookingReportService();
+
+        bookingHistory.addConfirmedReservation(new Reservation("RES-8001", "Aarav", "Double Room", 2));
+        bookingHistory.addConfirmedReservation(new Reservation("RES-8002", "Diya", "Single Room", 1));
+        bookingHistory.addConfirmedReservation(new Reservation("RES-8003", "Kabir", "Suite Room", 3));
+        bookingHistory.addConfirmedReservation(new Reservation("RES-8004", "Meera", "Double Room", 2));
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 8.1");
+        System.out.println("Use Case: UC08 - Booking History and Reporting");
+        System.out.println();
+        System.out.println("Confirmed Booking History (chronological order):");
+
+        List<Reservation> history = bookingHistory.getConfirmedReservationsSnapshot();
+        for (int index = 0; index < history.size(); index++) {
+            Reservation reservation = history.get(index);
+            System.out.println(reservation.getRequestId()
+                + " | Guest: " + reservation.getGuestName()
+                + " | Room: " + reservation.getRequestedRoomType()
+                + " | Nights: " + reservation.getNights());
+        }
+
+        System.out.println();
+        bookingReportService.printSummaryReport(bookingHistory);
+        System.out.println("Reporting completed without modifying booking history.");
     }
 
     /**
