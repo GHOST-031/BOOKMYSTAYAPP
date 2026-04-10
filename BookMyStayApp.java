@@ -8,7 +8,7 @@ import java.util.Map;
  * to keep the execution boundary clear and centralized.
  *
  * @author GHOST-031
- * @version 3.1
+ * @version 4.1
  */
 public class BookMyStayApp {
 
@@ -95,22 +95,50 @@ public class BookMyStayApp {
     }
 
     /**
+     * Read-only search service for guest-facing room discovery.
+     */
+    private static class RoomSearchService {
+        private final RoomInventory roomInventory;
+
+        private RoomSearchService(RoomInventory roomInventory) {
+            this.roomInventory = roomInventory;
+        }
+
+        public void displayAvailableRooms(Room[] rooms) {
+            for (int index = 0; index < rooms.length; index++) {
+                Room room = rooms[index];
+                if (room == null) {
+                    continue;
+                }
+
+                int availableCount = roomInventory.getAvailability(room.getRoomType());
+                if (availableCount > 0) {
+                    printRoomWithAvailability(room, availableCount);
+                }
+            }
+        }
+    }
+
+    /**
      * Starts the application and routes execution to a selected use case.
      *
-        * @param args command-line arguments (optional: pass UC number like "3")
+          * @param args command-line arguments (optional: pass UC number like "4")
      */
     public static void main(String[] args) {
-            int useCase = 3;
+              int useCase = 4;
 
         if (args.length > 0) {
             try {
                 useCase = Integer.parseInt(args[0]);
             } catch (NumberFormatException ex) {
-                System.out.println("Invalid use case argument. Running UC03 by default.");
+                System.out.println("Invalid use case argument. Running UC04 by default.");
             }
         }
 
         switch (useCase) {
+            case 4:
+                runUseCase4();
+                break;
             case 3:
                 runUseCase3();
                 break;
@@ -124,6 +152,35 @@ public class BookMyStayApp {
                 System.out.println("Use case not implemented yet in this class: UC" + useCase);
                 break;
         }
+    }
+
+    /**
+     * Use Case 4: Room Search and Availability Check.
+     */
+    private static void runUseCase4() {
+        RoomInventory roomInventory = new RoomInventory();
+
+        // Keep one room unavailable to demonstrate filtering behavior.
+        roomInventory.updateAvailability("Suite Room", 0);
+
+        Room[] rooms = new Room[] {
+            new SingleRoom(),
+            new DoubleRoom(),
+            new SuiteRoom()
+        };
+
+        RoomSearchService searchService = new RoomSearchService(roomInventory);
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 4.1");
+        System.out.println("Use Case: UC04 - Room Search and Availability Check");
+        System.out.println();
+        System.out.println("Available Room Options:");
+
+        searchService.displayAvailableRooms(rooms);
+
+        System.out.println("Search completed with read-only inventory access.");
     }
 
     /**
