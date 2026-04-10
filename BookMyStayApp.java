@@ -1,3 +1,6 @@
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Application entry point for the Book My Stay Hotel Booking Management System.
  *
@@ -5,7 +8,7 @@
  * to keep the execution boundary clear and centralized.
  *
  * @author GHOST-031
- * @version 2.1
+ * @version 3.1
  */
 public class BookMyStayApp {
 
@@ -61,22 +64,56 @@ public class BookMyStayApp {
     }
 
     /**
+     * Centralized room inventory that acts as the single source of truth.
+     */
+    private static class RoomInventory {
+        private final HashMap<String, Integer> availability;
+
+        private RoomInventory() {
+            availability = new HashMap<String, Integer>();
+            availability.put("Single Room", 8);
+            availability.put("Double Room", 5);
+            availability.put("Suite Room", 2);
+        }
+
+        public int getAvailability(String roomType) {
+            Integer count = availability.get(roomType);
+            return count == null ? 0 : count;
+        }
+
+        public void updateAvailability(String roomType, int newCount) {
+            if (newCount < 0) {
+                System.out.println("Invalid update for " + roomType + ": availability cannot be negative.");
+                return;
+            }
+            availability.put(roomType, newCount);
+        }
+
+        public Map<String, Integer> getInventorySnapshot() {
+            return new HashMap<String, Integer>(availability);
+        }
+    }
+
+    /**
      * Starts the application and routes execution to a selected use case.
      *
-      * @param args command-line arguments (optional: pass UC number like "2")
+        * @param args command-line arguments (optional: pass UC number like "3")
      */
     public static void main(String[] args) {
-          int useCase = 2;
+            int useCase = 3;
 
         if (args.length > 0) {
             try {
                 useCase = Integer.parseInt(args[0]);
             } catch (NumberFormatException ex) {
-                System.out.println("Invalid use case argument. Running UC02 by default.");
+                System.out.println("Invalid use case argument. Running UC03 by default.");
             }
         }
 
         switch (useCase) {
+            case 3:
+                runUseCase3();
+                break;
             case 2:
                 runUseCase2();
                 break;
@@ -87,6 +124,40 @@ public class BookMyStayApp {
                 System.out.println("Use case not implemented yet in this class: UC" + useCase);
                 break;
         }
+    }
+
+    /**
+     * Use Case 3: Centralized Room Inventory Management.
+     */
+    private static void runUseCase3() {
+        RoomInventory roomInventory = new RoomInventory();
+
+        Room singleRoom = new SingleRoom();
+        Room doubleRoom = new DoubleRoom();
+        Room suiteRoom = new SuiteRoom();
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 3.1");
+        System.out.println("Use Case: UC03 - Centralized Room Inventory Management");
+        System.out.println();
+        System.out.println("Initial Centralized Inventory:");
+
+        printRoomWithAvailability(singleRoom, roomInventory.getAvailability(singleRoom.getRoomType()));
+        printRoomWithAvailability(doubleRoom, roomInventory.getAvailability(doubleRoom.getRoomType()));
+        printRoomWithAvailability(suiteRoom, roomInventory.getAvailability(suiteRoom.getRoomType()));
+
+        System.out.println("Applying controlled inventory updates...");
+        roomInventory.updateAvailability("Double Room", 4);
+        roomInventory.updateAvailability("Suite Room", 1);
+        System.out.println();
+        System.out.println("Updated Centralized Inventory:");
+
+        printRoomWithAvailability(singleRoom, roomInventory.getAvailability(singleRoom.getRoomType()));
+        printRoomWithAvailability(doubleRoom, roomInventory.getAvailability(doubleRoom.getRoomType()));
+        printRoomWithAvailability(suiteRoom, roomInventory.getAvailability(suiteRoom.getRoomType()));
+
+        System.out.println("Inventory Snapshot Map: " + roomInventory.getInventorySnapshot());
     }
 
     /**
