@@ -1,5 +1,7 @@
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Queue;
 
 /**
  * Application entry point for the Book My Stay Hotel Booking Management System.
@@ -8,7 +10,7 @@ import java.util.Map;
  * to keep the execution boundary clear and centralized.
  *
  * @author GHOST-031
- * @version 4.1
+ * @version 5.1
  */
 public class BookMyStayApp {
 
@@ -120,22 +122,84 @@ public class BookMyStayApp {
     }
 
     /**
+     * Booking intent submitted by a guest before allocation.
+     */
+    private static class Reservation {
+        private final String requestId;
+        private final String guestName;
+        private final String requestedRoomType;
+        private final int nights;
+
+        private Reservation(String requestId, String guestName, String requestedRoomType, int nights) {
+            this.requestId = requestId;
+            this.guestName = guestName;
+            this.requestedRoomType = requestedRoomType;
+            this.nights = nights;
+        }
+
+        public String getRequestId() {
+            return requestId;
+        }
+
+        public String getGuestName() {
+            return guestName;
+        }
+
+        public String getRequestedRoomType() {
+            return requestedRoomType;
+        }
+
+        public int getNights() {
+            return nights;
+        }
+    }
+
+    /**
+     * Request intake queue preserving first-come-first-served ordering.
+     */
+    private static class BookingRequestQueue {
+        private final Queue<Reservation> pendingRequests;
+
+        private BookingRequestQueue() {
+            pendingRequests = new ArrayDeque<Reservation>();
+        }
+
+        public void submitRequest(Reservation reservation) {
+            if (reservation == null) {
+                return;
+            }
+            pendingRequests.offer(reservation);
+        }
+
+        public Queue<Reservation> getQueuedRequestsSnapshot() {
+            return new ArrayDeque<Reservation>(pendingRequests);
+        }
+
+        public int getPendingRequestCount() {
+            return pendingRequests.size();
+        }
+    }
+
+    /**
      * Starts the application and routes execution to a selected use case.
      *
-          * @param args command-line arguments (optional: pass UC number like "4")
+          * @param args command-line arguments (optional: pass UC number like "5")
      */
     public static void main(String[] args) {
-              int useCase = 4;
+              int useCase = 5;
 
         if (args.length > 0) {
             try {
                 useCase = Integer.parseInt(args[0]);
             } catch (NumberFormatException ex) {
-                System.out.println("Invalid use case argument. Running UC04 by default.");
+                System.out.println("Invalid use case argument. Running UC05 by default.");
             }
         }
 
         switch (useCase) {
+            case 5:
+                runUseCase5();
+                break;
             case 4:
                 runUseCase4();
                 break;
@@ -152,6 +216,39 @@ public class BookMyStayApp {
                 System.out.println("Use case not implemented yet in this class: UC" + useCase);
                 break;
         }
+    }
+
+    /**
+     * Use Case 5: Booking Request (First-Come-First-Served).
+     */
+    private static void runUseCase5() {
+        BookingRequestQueue bookingRequestQueue = new BookingRequestQueue();
+
+        bookingRequestQueue.submitRequest(new Reservation("REQ-1001", "Aarav", "Double Room", 2));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-1002", "Diya", "Single Room", 1));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-1003", "Kabir", "Suite Room", 3));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-1004", "Meera", "Double Room", 2));
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 5.1");
+        System.out.println("Use Case: UC05 - Booking Request (First-Come-First-Served)");
+        System.out.println();
+        System.out.println("Queued Booking Requests (FIFO Order):");
+
+        Queue<Reservation> queuedRequests = bookingRequestQueue.getQueuedRequestsSnapshot();
+        while (!queuedRequests.isEmpty()) {
+            Reservation reservation = queuedRequests.poll();
+            System.out.println(
+                reservation.getRequestId()
+                    + " | Guest: " + reservation.getGuestName()
+                    + " | Room: " + reservation.getRequestedRoomType()
+                    + " | Nights: " + reservation.getNights());
+        }
+
+        System.out.println();
+        System.out.println("Pending requests waiting for allocation: " + bookingRequestQueue.getPendingRequestCount());
+        System.out.println("Inventory is unchanged at request intake stage.");
     }
 
     /**
