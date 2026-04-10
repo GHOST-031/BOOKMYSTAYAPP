@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Stack;
 import java.util.Set;
 
 /**
@@ -14,7 +15,7 @@ import java.util.Set;
  * to keep the execution boundary clear and centralized.
  *
  * @author GHOST-031
- * @version 7.1
+ * @version 10.1
  */
 public class BookMyStayApp {
 
@@ -341,22 +342,225 @@ public class BookMyStayApp {
     }
 
     /**
+     * Domain-specific exception for invalid booking inputs or constraints.
+     */
+    private static class InvalidBookingException extends Exception {
+        private InvalidBookingException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Domain-specific exception for invalid inventory state transitions.
+     */
+    private static class InvalidInventoryStateException extends Exception {
+        private InvalidInventoryStateException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Validates booking input and state constraints before processing.
+     */
+    private static class InvalidBookingValidator {
+        private final Set<String> supportedRoomTypes;
+
+        private InvalidBookingValidator() {
+            supportedRoomTypes = new HashSet<String>();
+            supportedRoomTypes.add("Single Room");
+            supportedRoomTypes.add("Double Room");
+            supportedRoomTypes.add("Suite Room");
+        }
+
+        public void validateReservationInput(Reservation reservation) throws InvalidBookingException {
+            if (reservation == null) {
+                throw new InvalidBookingException("Reservation cannot be null.");
+            }
+
+            if (reservation.getRequestId() == null || reservation.getRequestId().isEmpty()) {
+                throw new InvalidBookingException("Request ID is required.");
+            }
+
+            if (reservation.getGuestName() == null || reservation.getGuestName().isEmpty()) {
+                throw new InvalidBookingException("Guest name is required for " + reservation.getRequestId() + ".");
+            }
+
+            // Room type validation is case-sensitive by design.
+            if (!supportedRoomTypes.contains(reservation.getRequestedRoomType())) {
+                throw new InvalidBookingException("Unsupported room type for " + reservation.getRequestId()
+                    + ": " + reservation.getRequestedRoomType() + ".");
+            }
+
+            if (reservation.getNights() <= 0) {
+                throw new InvalidBookingException("Number of nights must be greater than zero for "
+                    + reservation.getRequestId() + ".");
+            }
+        }
+
+        public void validateInventoryTransition(String roomType, int currentCount, int nextCount)
+            throws InvalidInventoryStateException {
+            if (currentCount < 0) {
+                throw new InvalidInventoryStateException("Current inventory is already invalid for " + roomType + ".");
+            }
+
+            if (nextCount < 0) {
+                throw new InvalidInventoryStateException("Inventory cannot become negative for " + roomType + ".");
+            }
+
+            if (nextCount > currentCount) {
+                throw new InvalidInventoryStateException("Unexpected inventory increase detected for " + roomType + ".");
+            }
+        }
+    }
+
+    /**
+     * Represents a confirmed booking entry in history.
+     */
+    private static class ConfirmedBooking {
+        private final String reservationId;
+        private final String guestName;
+        private final String roomType;
+        private final String roomId;
+        private String status;
+
+        private ConfirmedBooking(String reservationId, String guestName, String roomType, String roomId) {
+            this.reservationId = reservationId;
+            this.guestName = guestName;
+            this.roomType = roomType;
+            this.roomId = roomId;
+            this.status = "CONFIRMED";
+        }
+
+        public String getReservationId() {
+            return reservationId;
+        }
+
+        public String getGuestName() {
+            return guestName;
+        }
+
+        public String getRoomType() {
+            return roomType;
+        }
+
+        public String getRoomId() {
+            return roomId;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void markCancelled() {
+            status = "CANCELLED";
+        }
+    }
+
+    /**
+     * In-memory booking history preserving insertion order.
+     */
+    private static class BookingHistory {
+        private final List<ConfirmedBooking> bookingRecords;
+
+        private BookingHistory() {
+            bookingRecords = new ArrayList<ConfirmedBooking>();
+        }
+
+        public void addConfirmedBooking(ConfirmedBooking confirmedBooking) {
+            if (confirmedBooking != null) {
+                bookingRecords.add(confirmedBooking);
+            }
+        }
+
+        public ConfirmedBooking findByReservationId(String reservationId) {
+            for (int index = 0; index < bookingRecords.size(); index++) {
+                ConfirmedBooking booking = bookingRecords.get(index);
+                if (booking.getReservationId().equals(reservationId)) {
+                    return booking;
+                }
+            }
+            return null;
+        }
+
+        public List<ConfirmedBooking> getHistorySnapshot() {
+            return new ArrayList<ConfirmedBooking>(bookingRecords);
+        }
+    }
+
+    /**
+     * Exception used for invalid cancellation scenarios.
+     */
+    private static class BookingCancellationException extends Exception {
+        private BookingCancellationException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Performs validated cancellation and rollback operations.
+     */
+    private static class CancellationService {
+        private final RoomInventory roomInventory;
+        private final BookingHistory bookingHistory;
+        private final Stack<String> releasedRoomRollbackStack;
+
+        private CancellationService(RoomInventory roomInventory, BookingHistory bookingHistory) {
+            this.roomInventory = roomInventory;
+            this.bookingHistory = bookingHistory;
+            this.releasedRoomRollbackStack = new Stack<String>();
+        }
+
+        public void cancelReservation(String reservationId) throws BookingCancellationException {
+            ConfirmedBooking confirmedBooking = bookingHistory.findByReservationId(reservationId);
+            if (confirmedBooking == null) {
+                throw new BookingCancellationException("Reservation does not exist: " + reservationId);
+            }
+
+            if ("CANCELLED".equals(confirmedBooking.getStatus())) {
+                throw new BookingCancellationException("Reservation already cancelled: " + reservationId);
+            }
+
+            String roomType = confirmedBooking.getRoomType();
+            int currentAvailability = roomInventory.getAvailability(roomType);
+
+            // Controlled rollback order: record release, restore inventory, update history status.
+            releasedRoomRollbackStack.push(confirmedBooking.getRoomId());
+            roomInventory.updateAvailability(roomType, currentAvailability + 1);
+            confirmedBooking.markCancelled();
+        }
+
+        public List<String> getRollbackSnapshotLifo() {
+            ArrayList<String> rollbackRoomIds = new ArrayList<String>();
+            for (int index = releasedRoomRollbackStack.size() - 1; index >= 0; index--) {
+                rollbackRoomIds.add(releasedRoomRollbackStack.get(index));
+            }
+            return rollbackRoomIds;
+        }
+    }
+
+    /**
      * Starts the application and routes execution to a selected use case.
      *
-          * @param args command-line arguments (optional: pass UC number like "7")
+          * @param args command-line arguments (optional: pass UC number like "10")
      */
     public static void main(String[] args) {
-              int useCase = 7;
+              int useCase = 10;
 
         if (args.length > 0) {
             try {
                 useCase = Integer.parseInt(args[0]);
             } catch (NumberFormatException ex) {
-                System.out.println("Invalid use case argument. Running UC07 by default.");
+                System.out.println("Invalid use case argument. Running UC10 by default.");
             }
         }
 
         switch (useCase) {
+            case 10:
+                runUseCase10();
+                break;
+            case 9:
+                runUseCase9();
+                break;
             case 7:
                 runUseCase7();
                 break;
@@ -382,6 +586,112 @@ public class BookMyStayApp {
                 System.out.println("Use case not implemented yet in this class: UC" + useCase);
                 break;
         }
+    }
+
+    /**
+     * Use Case 10: Booking Cancellation and Inventory Rollback.
+     */
+    private static void runUseCase10() {
+        RoomInventory roomInventory = new RoomInventory();
+        BookingHistory bookingHistory = new BookingHistory();
+
+        ConfirmedBooking booking1 = new ConfirmedBooking("RES-1001", "Aarav", "Double Room", "DOUBLEROOM-301");
+        ConfirmedBooking booking2 = new ConfirmedBooking("RES-1002", "Diya", "Suite Room", "SUITEROOM-302");
+        ConfirmedBooking booking3 = new ConfirmedBooking("RES-1003", "Kabir", "Suite Room", "SUITEROOM-303");
+
+        bookingHistory.addConfirmedBooking(booking1);
+        bookingHistory.addConfirmedBooking(booking2);
+        bookingHistory.addConfirmedBooking(booking3);
+
+        // Simulate pre-existing confirmed allocations reflected in inventory.
+        roomInventory.updateAvailability("Double Room", 4);
+        roomInventory.updateAvailability("Suite Room", 0);
+
+        CancellationService cancellationService = new CancellationService(roomInventory, bookingHistory);
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 10.1");
+        System.out.println("Use Case: UC10 - Booking Cancellation and Inventory Rollback");
+        System.out.println();
+        System.out.println("Processing cancellation requests:");
+
+        processCancellationRequest(cancellationService, "RES-1002");
+        processCancellationRequest(cancellationService, "RES-9999");
+        processCancellationRequest(cancellationService, "RES-1002");
+
+        System.out.println();
+        System.out.println("Rollback stack (LIFO, most recent first): " + cancellationService.getRollbackSnapshotLifo());
+        System.out.println("Inventory after cancellations: " + roomInventory.getInventorySnapshot());
+        System.out.println("Booking history status report:");
+
+        List<ConfirmedBooking> history = bookingHistory.getHistorySnapshot();
+        for (int index = 0; index < history.size(); index++) {
+            ConfirmedBooking booking = history.get(index);
+            System.out.println(booking.getReservationId()
+                + " | Guest: " + booking.getGuestName()
+                + " | Room ID: " + booking.getRoomId()
+                + " | Status: " + booking.getStatus());
+        }
+    }
+
+    private static void processCancellationRequest(CancellationService cancellationService, String reservationId) {
+        try {
+            cancellationService.cancelReservation(reservationId);
+            System.out.println("Cancellation successful for " + reservationId + ".");
+        } catch (BookingCancellationException ex) {
+            System.out.println("Cancellation rejected: " + ex.getMessage());
+        }
+    }
+
+    /**
+     * Use Case 9: Error Handling and Validation.
+     */
+    private static void runUseCase9() {
+        RoomInventory roomInventory = new RoomInventory();
+        BookingRequestQueue bookingRequestQueue = new BookingRequestQueue();
+        InvalidBookingValidator validator = new InvalidBookingValidator();
+
+        bookingRequestQueue.submitRequest(new Reservation("REQ-9001", "Anaya", "Double Room", 2));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-9002", "Rohan", "suite room", 1));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-9003", "Ira", "Single Room", 0));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-9004", "Vihaan", "Suite Room", 1));
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 9.1");
+        System.out.println("Use Case: UC09 - Error Handling and Validation");
+        System.out.println();
+        System.out.println("Processing booking requests with fail-fast validation:");
+
+        while (bookingRequestQueue.hasPendingRequests()) {
+            Reservation reservation = bookingRequestQueue.dequeueNextRequest();
+
+            try {
+                validator.validateReservationInput(reservation);
+
+                String roomType = reservation.getRequestedRoomType();
+                int currentAvailability = roomInventory.getAvailability(roomType);
+                int updatedAvailability = currentAvailability - 1;
+
+                validator.validateInventoryTransition(roomType, currentAvailability, updatedAvailability);
+                roomInventory.updateAvailability(roomType, updatedAvailability);
+
+                System.out.println("Accepted " + reservation.getRequestId()
+                    + " for " + reservation.getGuestName()
+                    + ". Updated availability for " + roomType + ": " + updatedAvailability);
+            } catch (InvalidBookingException ex) {
+                System.out.println("Validation failed: " + ex.getMessage());
+            } catch (InvalidInventoryStateException ex) {
+                System.out.println("Inventory validation failed: " + ex.getMessage());
+            } catch (Exception ex) {
+                System.out.println("Unexpected error while handling request: " + ex.getMessage());
+            }
+        }
+
+        System.out.println();
+        System.out.println("System remained stable after validation failures.");
+        System.out.println("Final inventory snapshot: " + roomInventory.getInventorySnapshot());
     }
 
     /**
