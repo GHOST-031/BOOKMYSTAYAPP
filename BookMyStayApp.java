@@ -14,7 +14,7 @@ import java.util.Set;
  * to keep the execution boundary clear and centralized.
  *
  * @author GHOST-031
- * @version 8.1
+ * @version 9.1
  */
 public class BookMyStayApp {
 
@@ -382,22 +382,97 @@ public class BookMyStayApp {
     }
 
     /**
+     * Domain-specific exception for invalid booking scenarios.
+     */
+    private static class InvalidBookingException extends Exception {
+        private InvalidBookingException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Domain-specific exception for invalid inventory transitions.
+     */
+    private static class InvalidInventoryStateException extends Exception {
+        private InvalidInventoryStateException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Validator that protects booking input and inventory state.
+     */
+    private static class InvalidBookingValidator {
+        private final Set<String> supportedRoomTypes;
+
+        private InvalidBookingValidator() {
+            supportedRoomTypes = new HashSet<String>();
+            supportedRoomTypes.add("Single Room");
+            supportedRoomTypes.add("Double Room");
+            supportedRoomTypes.add("Suite Room");
+        }
+
+        public void validateReservationInput(Reservation reservation) throws InvalidBookingException {
+            if (reservation == null) {
+                throw new InvalidBookingException("Reservation cannot be null.");
+            }
+
+            if (reservation.getRequestId() == null || reservation.getRequestId().isEmpty()) {
+                throw new InvalidBookingException("Request ID is required.");
+            }
+
+            if (reservation.getGuestName() == null || reservation.getGuestName().isEmpty()) {
+                throw new InvalidBookingException("Guest name is required for " + reservation.getRequestId() + ".");
+            }
+
+            // Room type comparison is intentionally case-sensitive.
+            if (!supportedRoomTypes.contains(reservation.getRequestedRoomType())) {
+                throw new InvalidBookingException("Unsupported room type for " + reservation.getRequestId()
+                    + ": " + reservation.getRequestedRoomType() + ".");
+            }
+
+            if (reservation.getNights() <= 0) {
+                throw new InvalidBookingException("Number of nights must be greater than zero for "
+                    + reservation.getRequestId() + ".");
+            }
+        }
+
+        public void validateInventoryTransition(String roomType, int currentCount, int nextCount)
+            throws InvalidInventoryStateException {
+            if (currentCount < 0) {
+                throw new InvalidInventoryStateException("Current inventory is invalid for " + roomType + ".");
+            }
+
+            if (nextCount < 0) {
+                throw new InvalidInventoryStateException("Inventory cannot become negative for " + roomType + ".");
+            }
+
+            if (nextCount > currentCount) {
+                throw new InvalidInventoryStateException("Unexpected inventory increase for " + roomType + ".");
+            }
+        }
+    }
+
+    /**
      * Starts the application and routes execution to a selected use case.
      *
-          * @param args command-line arguments (optional: pass UC number like "8")
+          * @param args command-line arguments (optional: pass UC number like "9")
      */
     public static void main(String[] args) {
-              int useCase = 8;
+              int useCase = 9;
 
         if (args.length > 0) {
             try {
                 useCase = Integer.parseInt(args[0]);
             } catch (NumberFormatException ex) {
-                System.out.println("Invalid use case argument. Running UC08 by default.");
+                System.out.println("Invalid use case argument. Running UC09 by default.");
             }
         }
 
         switch (useCase) {
+            case 9:
+                runUseCase9();
+                break;
             case 8:
                 runUseCase8();
                 break;
@@ -426,6 +501,54 @@ public class BookMyStayApp {
                 System.out.println("Use case not implemented yet in this class: UC" + useCase);
                 break;
         }
+    }
+
+    /**
+     * Use Case 9: Error Handling and Validation.
+     */
+    private static void runUseCase9() {
+        RoomInventory roomInventory = new RoomInventory();
+        BookingRequestQueue bookingRequestQueue = new BookingRequestQueue();
+        InvalidBookingValidator validator = new InvalidBookingValidator();
+
+        bookingRequestQueue.submitRequest(new Reservation("REQ-9001", "Anaya", "Double Room", 2));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-9002", "Rohan", "suite room", 1));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-9003", "Ira", "Single Room", 0));
+        bookingRequestQueue.submitRequest(new Reservation("REQ-9004", "Vihaan", "Suite Room", 1));
+
+        System.out.println("Welcome to Book My Stay");
+        System.out.println("Application: Hotel Booking Management System");
+        System.out.println("Version: 9.1");
+        System.out.println("Use Case: UC09 - Error Handling and Validation");
+        System.out.println();
+        System.out.println("Processing booking requests with fail-fast validation:");
+
+        while (bookingRequestQueue.hasPendingRequests()) {
+            Reservation reservation = bookingRequestQueue.dequeueNextRequest();
+
+            try {
+                validator.validateReservationInput(reservation);
+
+                String roomType = reservation.getRequestedRoomType();
+                int currentAvailability = roomInventory.getAvailability(roomType);
+                int updatedAvailability = currentAvailability - 1;
+
+                validator.validateInventoryTransition(roomType, currentAvailability, updatedAvailability);
+                roomInventory.updateAvailability(roomType, updatedAvailability);
+
+                System.out.println("Accepted " + reservation.getRequestId()
+                    + " for " + reservation.getGuestName()
+                    + ". Updated availability for " + roomType + ": " + updatedAvailability);
+            } catch (InvalidBookingException ex) {
+                System.out.println("Validation failed: " + ex.getMessage());
+            } catch (InvalidInventoryStateException ex) {
+                System.out.println("Inventory validation failed: " + ex.getMessage());
+            }
+        }
+
+        System.out.println();
+        System.out.println("System remained stable after validation failures.");
+        System.out.println("Final inventory snapshot: " + roomInventory.getInventorySnapshot());
     }
 
     /**
